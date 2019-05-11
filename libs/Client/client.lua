@@ -83,7 +83,7 @@ function Client:_handlesock(socket)
 
     local lines = parser.split(data, '\r\n')
     for _, line in pairs(lines) do
-      self:handleMessage(parser.websocketMessage(line))
+      self:_handleMessage(parser.websocketMessage(line))
       self:emit('data', line)
     end
   end)
@@ -197,7 +197,7 @@ function Client:_updateEmoteSet(sets)
   end)()
 end
 
-function Client:handleMessage(message)
+function Client:_handleMessage(message)
   if not message then return end
 
   local channel = parser.channel(message.params[1]) or nil
@@ -480,7 +480,8 @@ function Client:connect(retries)
   if self.secure then self.port = 6697 end
   if self.port == 6697 then self.secure = true end
 
-  return self:_openConnection()
+  self:_openConnection()
+  return nil
 end
 
 function Client:disconnect(reason)
