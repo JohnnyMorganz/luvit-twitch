@@ -1,3 +1,3 @@
 return {
-  client = require('client')
+  client = require('Client/client')
 }

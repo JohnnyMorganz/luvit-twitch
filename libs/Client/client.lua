@@ -49,7 +49,6 @@ function Client:__init(options)
   self.currentLatency = 0
   self.globaluserstate = {}
   self.lastJoined = ''
-  self.latency = os.time()
   self.moderators = {}
   self.reason = ''
   self.username = ''
