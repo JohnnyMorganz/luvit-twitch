@@ -53,8 +53,16 @@ function Client:__init(options)
   self.reason = ''
   self.username = ''
   self.userstate = {}
+
+  self.debug = self.options.debug or false
 end
 
+function Client:_log(message, ...)
+  if self.debug then
+    message = string.format(message, ...)
+    print(message)
+  end
+end
 
 function Client:_sendRaw(message)
   if self.sock then
@@ -63,6 +71,8 @@ function Client:_sendRaw(message)
 end
 
 function Client:_completeConnection()
+  self:_log('[CONNECTION] Sending login data')
+
   self.username = self.options.identity.username or 'Fan' .. math.random(1, 10000)
   self.password = self.options.identity.password or 'MEME'
   self:_sendRaw('CAP REQ :twitch.tv/tags twitch.tv/commands twitch.tv/membership')
@@ -131,6 +141,8 @@ function Client:_openConnection()
   self.connecting = true
   self.sendQueue:clear()
   self:emit('connecting')
+
+  self:_log('[CONNECTION] Connecting')
 
   if self.reconnectionTask then
     timer.clearTimer(self.reconnectionTask)
@@ -216,9 +228,9 @@ function Client:handleMessage(message)
       end
     elseif message.command == 'PONG' then
       -- TODO
-      print('the server ponged????')
+      self:_log('[WARN] Server sent PONG')
     else
-      print('TWITCH | WARN | Could not parse message with no prefix: ' .. message.raw)
+      self:_log('[WARN] Could not parse message with NO PREFIX: %s', message.raw)
     end
     return
   elseif message.prefix == 'tmi.twitch.tv' then
@@ -232,24 +244,24 @@ function Client:handleMessage(message)
       return self:_connected()
     elseif message.command == 'NOTICE' then -- https://github.com/justintv/Twitch-API/blob/master/chat/capabilities.md#notice
       if messageId == 'subs_on' then
-        print(f('[$s] This room is now in subscribers-only mode', channel))
+        self:_log('[$s] This room is now in subscribers-only mode', channel)
         self:emit('subscribers', channel, true)
       elseif messageId == 'subs_off' then
-        print(f('[$s] This room is no longer in subscribers-only mode', channel))
+        self:_log('[$s] This room is no longer in subscribers-only mode', channel)
         self:emit('subscribers', channel, false)
 
       elseif messageId == 'emote_only_on' then
-        print(f('[$s] This room is now in emote-only mode', channel))
+        self:_log('[$s] This room is now in emote-only mode', channel)
         self:emit('emoteonly', channel, true)
       elseif messageId == 'emote_only_off' then
-        print(f('[$s] This room is no longer in emote-only mode', channel))
+        self:_log('[$s] This room is no longer in emote-only mode', channel)
         self:emit('emoteonly', channel, false)
 
       elseif messageId == 'r9k_on' then
-        print(f('[$s] This room is now in r9k mode', channel))
+        self:_log('[$s] This room is now in r9k mode', channel)
         self:emit('r9kmode', channel, true)
       elseif messageId == 'r9k_off' then
-        print(f('[$s] This room is no longer in r9k mode', channel))
+        self:_log('[$s] This room is no longer in r9k mode', channel)
         self:emit('r9kmode', channel, false)
 
       elseif messageId == 'room_mods' then
@@ -276,10 +288,10 @@ function Client:handleMessage(message)
       local viewers = tonumber(messageSplit[2]) or 0
 
       if messageSplit[1] == '-' then
-        print(f('[%s] Exited host mode', channel))
+        self:_log('[%s] Exited host mode', channel)
         self:emit('unhost', channel, viewers)
       else
-        print(f('[%s] Now hosting %s for %s viewer(s)', channel, messageSplit[1], viewers))
+        self:_log('[%s] Now hosting %s for %s viewer(s)', channel, messageSplit[1], viewers)
         self:emit('host', channel, messageSplit[1], viewers)
       end
     elseif message.command == 'CLEARCHAT' then
@@ -287,14 +299,14 @@ function Client:handleMessage(message)
         local duration = message.tags['ban-duration'] or nil
 
         if not duration then
-          print(f('[%s] %s has been banned', channel, msg))
+          self:_log('[%s] %s has been banned', channel, msg)
           self:emit('ban', channel, msg, duration, message.tags)
         else
-          print(f('[%s] %s has been timed out for %s seconds', channel, msg, duration))
+          self:_log('[%s] %s has been timed out for %s seconds', channel, msg, duration)
           self:emit('timeout', channel, msg, tonumber(duration), message.tags)
         end
       else
-        print(f('[%s] Chat was cleared by moderator', channel))
+        self:_log('[%s] Chat was cleared by moderator', channel)
         self:emit('clearchat', channel)
       end
     elseif message.command == 'CLEARMSG' then
@@ -304,11 +316,11 @@ function Client:handleMessage(message)
         local userstate = message.tags
         userstate['message-type'] = 'messagedeleted'
 
-        print(f('[%s] %s\'s message(s) has been deleted (%s)', channel, username, deletedMessage))
+        self:_log('[%s] %s\'s message(s) has been deleted (%s)', channel, username, deletedMessage)
         self:emit('messageDeleted', channel, username, deletedMessage, userstate)
       end
     elseif message.command == 'RECONNECT' then
-      print('Received RECONNECT request from Twitch')
+      self:_log('Received RECONNECT request from Twitch')
       self:_disconnected('Reconnecting')
     elseif message.command == 'USERSTATE' then
       message.tags.username = self.username
@@ -322,7 +334,7 @@ function Client:handleMessage(message)
         self.userstate[channel] = message.tags
         self.lastJoined = channel
         self.channels[channel] = true
-        print(f('Joined %s', channel))
+        self:_log('Joined %s', channel)
         self:emit('join', channel, (parser.username(self:getUsername())))
       end
 
@@ -344,11 +356,11 @@ function Client:handleMessage(message)
       if message.tags['subs-only'] then
         if message.tags['slow'] ~= nil then
           if type(message.tags.slow) == 'boolean' and not message.tags.slow then
-            print(f('[%s] This room is no longer in slow mode', channel))
+            self:_log('[%s] This room is no longer in slow mode', channel)
             self:emit('slowmode', channel, false)
           else
             local minutes = tonumber(message.tags.slow)
-            print(f('[%s] This room is now in slow mode', channel))
+            self:_log('[%s] This room is now in slow mode', channel)
             self:emit('slowmode', channel, true, minutes)
           end
         end
@@ -356,18 +368,18 @@ function Client:handleMessage(message)
 
       if message.tags['followers-only'] then
         if message.tags['followers-only'] == '-1' then
-          print(f('[%s] This room is no longer in followers-only mode', channel))
+          self:_log('[%s] This room is no longer in followers-only mode', channel)
           self:emit('followersonly', channel, false, 0)
           self:emit('followersmode', channel, false, 0)
         else
           local minutes = tonumber(message.tags['followers-only'])
-          print(f('[%s] This room is now in follower-only mode', channel))
+          self:_log('[%s] This room is now in follower-only mode', channel)
           self:emit('followersonly', channel, true, minutes)
           self:emit('followersmode', channel, true, minutes)
         end
       end
     else
-      print('Unable to parse message from tmi.twitch.tv: ' .. message.raw)
+      self:_log('[WARN] Unable to parse message from tmi.twitch.tv: %s', message.raw)
     end
   elseif message.prefix == 'jtv' then
     if message.command == 'MODE' then
@@ -381,21 +393,21 @@ function Client:handleMessage(message)
         self:emit('unmod', channel, message.params[3])
       end
     else
-      print('Unable to parse messages from jtv: ' .. message.raw)
-    end
+      self:_log('[WARN] Unable to parse message from jtv: %s', message.raw)    end
   else
     if message.command == '353' then
       self:emit('names', message.params[2], parser.split(message.params[3], ' '))
     elseif message.command == 'JOIN' then
       local nick = parser.split(message.prefix, '!')[1]
+      local isSelf = false
       if self.username == nick then
         self.lastJoined = channel
         self.channels[channel] = true
-        print(f('Joined #%s', channel))
-        self:emit('join', channel, nick, true)
-      else
-        self:emit('join', channel, nick, false)
+        isSelf = true
       end
+
+      self:emit('join', channel, nick, isSelf)
+      self:_log('User <%s> joined #%s', nick, channel)
     elseif message.command == 'PART' then
       local isSelf = false
       local nick = parser.split(message.prefix, '!')[1]
@@ -404,13 +416,14 @@ function Client:handleMessage(message)
         isSelf = true
         self.userstate[channel] = nil
         self.channels[channel] = nil
-        print(f('Left #%s', channel))
+        self:_log('Left #%s', channel)
       end
 
+      self:_log('User <%s> left #%s', nick, channel)
       self:emit('left', channel, nick, isSelf)
     elseif message.command == 'WHISPER' then
       local nick = parser.split(message.prefix, '!')[1]
-      print(f('[WHISPER] <%s>: %s', nick, message))
+      self:_log('[WHISPER] <%s>: %s', nick, message)
 
       if not message.tags.username then message.tags.username = nick end
       message.tags['message-type'] = 'whisper'
@@ -436,15 +449,15 @@ function Client:handleMessage(message)
         local actionMessage = parser.actionMessage(msg)
         if actionMessage then
           message.tags['message-type'] = 'action'
-          print(f('[%s] *<%s>: %s', channel, message.tags.username, actionMessage[2]))
+          self:_log('[%s] *<%s>: %s', channel, message.tags.username, actionMessage[2])
           self:emit('action', channel, message.tags, actionMessage[2], false)
           self:emit('message', channel, message.tags, actionMessage[2], false)
         else
-          if message.tags['bits'] then 
+          if message.tags['bits'] then
             self:emit('cheer', channel, message.tags, msg)
           else
             message.tags['message-type'] = 'chat'
-            print(f('[%s] <%s>: %s', channel, message.tags.username, msg))
+            self:_log('[%s] <%s>: %s', channel, message.tags.username, msg)
             self:emit('chat', channel, message.tags, msg, false)
             self:emit('message', channel, message.tags, msg, false)
           end
@@ -458,7 +471,7 @@ function Client:connect(retries)
   if retries then
     if self.connected then return end
     self.reconnections = retries
-    print('Reconnecting #' .. self.reconnections)
+    self:_log('Reconnecting #%s', self.reconnections)
   end
 
   if self.connected then self:disconnect('Reconnecting') end
@@ -477,6 +490,7 @@ function Client:disconnect(reason)
   if self.connected then
     self:_send('QUIT ' .. reason)
   end
+  self:_log('Disconnecting')
   self:_disconnected(reason or 'Quit')
 end
 
