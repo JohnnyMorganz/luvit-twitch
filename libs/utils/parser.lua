@@ -75,7 +75,7 @@ return {
   end,
 
   actionMessage = function(message)
-    return message:match('^\\u0001ACTION ([^\\u0001]+)\\u0001$')
+    return message:match('^\\u0001ACTION (.+)\\u0001$')
   end,
 
   unescapeIRC = function(message)
