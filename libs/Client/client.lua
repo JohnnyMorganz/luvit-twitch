@@ -240,7 +240,7 @@ function Client:_handleMessage(message)
     elseif message.command == '372' then -- Connected to Server
       self.userstate['#tmilua'] = {}
       return self:_connected()
-    elseif message.command == 'NOTICE' then -- https://github.com/justintv/Twitch-API/blob/master/chat/capabilities.md#notice
+    elseif message.command == 'NOTICE' then -- https://dev.twitch.tv/docs/irc/chat-rooms/#notice-twitch-chat-rooms
       if messageId == 'subs_on' then
         self:_log('[$s] This room is now in subscribers-only mode', channel)
         self:emit('subscribers', channel, true)
@@ -380,7 +380,7 @@ function Client:_handleMessage(message)
       self:_log('[WARN] Unable to parse message from tmi.twitch.tv: %s', message.raw)
     end
   elseif message.prefix == 'jtv' then
-    if message.command == 'MODE' then
+    if message.command == 'MODE' then -- https://dev.twitch.tv/docs/irc/membership/#mode-twitch-membership
       if msg == '+o' then
         self.moderators[channel] = self.moderators[channel] or {}
         self.moderators[channel][message.params[3]] = true
@@ -393,9 +393,9 @@ function Client:_handleMessage(message)
     else
       self:_log('[WARN] Unable to parse message from jtv: %s', message.raw)    end
   else
-    if message.command == '353' then
+    if message.command == '353' then -- https://dev.twitch.tv/docs/irc/membership/#names-twitch-membership
       self:emit('names', message.params[2], parser.split(message.params[3], ' '))
-    elseif message.command == 'JOIN' then
+    elseif message.command == 'JOIN' then -- https://dev.twitch.tv/docs/irc/membership/#join-twitch-membership
       local nick = parser.split(message.prefix, '!')[1]
       local isSelf = false
       if self.username == nick then
@@ -406,7 +406,7 @@ function Client:_handleMessage(message)
 
       self:emit('join', channel, nick, isSelf)
       self:_log('User <%s> joined %s', nick, channel)
-    elseif message.command == 'PART' then
+    elseif message.command == 'PART' then -- https://dev.twitch.tv/docs/irc/membership/#names-twitch-membership
       local isSelf = false
       local nick = parser.split(message.prefix, '!')[1]
 
@@ -467,7 +467,7 @@ end
 
 function Client:connect(retries)
   if retries then
-    if self.connected then return end
+    if self.connected then return false, 'Already connected' end
     self.reconnections = retries
     self:_log('Reconnecting #%s', self.reconnections)
   end
@@ -509,14 +509,18 @@ end
 function Client:joinChannel(channel) -- Join a Channel
   if self.connected then
     channel = parser.channel(channel)
-    self:_send('JOIN ' .. channel)
+    return self:_send('JOIN ' .. channel)
+  else
+    return false, 'Not connected'
   end
 end
 
 function Client:leaveChannel(channel) -- Part a Channel
   if self.connected then
     channel = parser.channel(channel)
-    self:_send('PART ' .. channel)
+    return self:_send('PART ' .. channel)
+  else
+    return false, 'Not connected'
   end
 end
 function Client:part(...) return self:leaveChannel(...) end -- Alias for Leave Channel
@@ -596,7 +600,7 @@ function Client:sendMessage(channel, message)
 
     self:_send('PRIVMSG ' .. channel .. ' :' .. message)
   else
-    return false
+    return false, 'Not connected'
   end
 end
 function Client:say(...) return self:sendMessage(...) end -- Alias for Client:sendMessage
@@ -610,7 +614,7 @@ function Client:sendCommand(channel, command)
       self:_send(command)
     end
   else
-    return false
+    return false, 'Not connected'
   end
 end
 
