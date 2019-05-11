@@ -598,6 +598,7 @@ function Client:sendMessage(channel, message)
     return false
   end
 end
+function Client:say(...) return self:sendMessage(...) end -- Alias for Client:sendMessage
 
 function Client:sendCommand(channel, command)
   if self.connected then
