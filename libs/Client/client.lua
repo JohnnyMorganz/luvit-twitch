@@ -505,21 +505,22 @@ function Client:_send(message)
 end
 
 -- Exposed Functions --
-function Client:joinChannel(channel)
+function Client:joinChannel(channel) -- Join a Channel
   if self.connected then
     channel = parser.channel(channel)
     self:_send('JOIN ' .. channel)
   end
 end
 
-function Client:leaveChannel(channel)
+function Client:leaveChannel(channel) -- Part a Channel
   if self.connected then
     channel = parser.channel(channel)
     self:_send('PART ' .. channel)
   end
 end
+function Client:part(...) return self:leaveChannel(...) end -- Alias for Leave Channel
 
-function Client:followersOnly(channel, minutes)
+function Client:followersOnly(channel, minutes) -- Toggle followers only mode
   channel = parser.channel(channel)
   if type(minutes) == 'boolean' and not minutes then
     -- Off
@@ -530,7 +531,19 @@ function Client:followersOnly(channel, minutes)
   end
 end
 
-function Client:slowMode(channel, seconds)
+function Client:r9kmode(channel, on) -- Toggle r9k mode
+  if on == nil then on = true end
+
+  channel = parser.channel(channel)
+  if on then
+    return self:sendCommand(channel, '/r9kbeta')
+  else
+    return self:sendCommand(channel, '/r9kbetaoff')
+  end
+end
+function Client:r9kbeta(...) return self:r9kmode(...) end -- Alias for r9kmode
+
+function Client:slowMode(channel, seconds) -- Toggle slow mode
   channel = parser.channel(channel)
   if type(seconds) == 'boolean' and not seconds then
     return self:sendCommand(channel, '/slowoff')
@@ -538,6 +551,36 @@ function Client:slowMode(channel, seconds)
     seconds = seconds or 300
     return self:sendCommand(channel, f('/slow %s', seconds))
   end
+end
+
+function Client:banUser(channel, username) -- Ban user from channel
+  channel = parser.channel(channel)
+  username = parser.username(username)
+
+  return self:sendCommand(channel, f('/ban %s', username))
+end
+
+function Client:clear(channel) -- Clear messages in a channel
+  channel = parser.channel(channel)
+  return self:sendCommand(channel, '/clear')
+end
+
+function Client:changeColor(channel, newColor) -- Change name color in a channel
+  channel = parser.channel(channel)
+  newColor = newColor or ''
+
+  return self:sendCommand(channel, '/color %s', newColor)
+end
+
+function Client:commercial(channel, seconds)
+  channel = parser.channel(channel)
+  seconds = seconds or 30
+
+  return self:sendCommand(channel, f('/commercial %s', seconds))
+end
+
+function Client:sendActionMessage(channel, message) -- Send an action (/me text) message
+  return self:sendMessage(channel, f('\\u0001ACTION %s\\u0001', message))
 end
 
 function Client:sendMessage(channel, message)
