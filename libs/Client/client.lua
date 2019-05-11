@@ -30,9 +30,7 @@ function Client:__init(options)
   self.connecting = false
 
   self.maxReconnectAttempts = self.options.connection.maxReconnectAttempts or math.huge
-  self.maxReconnectInterval = self.options.connection.maxReconnectInterval or 30000
   self.allowReconnect = self.options.connection.reconnect or false
-  self.reconnectDelay = self.options.connection.reconnectDelay or 1.5
   self.reconnectInterval = self.options.connection.reconnectInterval or 1000
 
   self.reconnections = 0
@@ -50,11 +48,10 @@ function Client:__init(options)
   self.globaluserstate = {}
   self.lastJoined = ''
   self.moderators = {}
-  self.reason = ''
   self.username = ''
   self.userstate = {}
 
-  self.debug = self.options.debug or false
+  self.debug = self.options.options.debug or false
 end
 
 function Client:_log(message, ...)
@@ -108,6 +105,7 @@ function Client:_connected()
   self.connected = true
   self.intentionalDisconnect = false
   self.sendQueue:start()
+  self:_log('[CONNECTION] Connected')
   self:emit('connected')
 end
 
@@ -407,7 +405,7 @@ function Client:handleMessage(message)
       end
 
       self:emit('join', channel, nick, isSelf)
-      self:_log('User <%s> joined #%s', nick, channel)
+      self:_log('User <%s> joined %s', nick, channel)
     elseif message.command == 'PART' then
       local isSelf = false
       local nick = parser.split(message.prefix, '!')[1]
@@ -419,7 +417,7 @@ function Client:handleMessage(message)
         self:_log('Left #%s', channel)
       end
 
-      self:_log('User <%s> left #%s', nick, channel)
+      self:_log('User <%s> left %s', nick, channel)
       self:emit('left', channel, nick, isSelf)
     elseif message.command == 'WHISPER' then
       local nick = parser.split(message.prefix, '!')[1]
@@ -429,8 +427,8 @@ function Client:handleMessage(message)
       message.tags['message-type'] = 'whisper'
 
       local from = parser.channel(message.tags.username)
-      self:emit('whisper', from, message.tags, msg, false)
-      self:emit('message', from, message.tags, msg, false)
+      self:emit('whisper', from, message.tags.username, msg, message.tags)
+      self:emit('message', from, message.tags.username, msg, message.tags)
     elseif message.command == 'PRIVMSG' then
       message.tags.username = parser.split(message.prefix, '!')[1]
 
@@ -450,16 +448,16 @@ function Client:handleMessage(message)
         if actionMessage then
           message.tags['message-type'] = 'action'
           self:_log('[%s] *<%s>: %s', channel, message.tags.username, actionMessage[2])
-          self:emit('action', channel, message.tags, actionMessage[2], false)
-          self:emit('message', channel, message.tags, actionMessage[2], false)
+          self:emit('action', channel, message.tags.username, actionMessage[2], message.tags)
+          self:emit('message', channel, message.tags.username, actionMessage[2], message.tags)
         else
           if message.tags['bits'] then
             self:emit('cheer', channel, message.tags, msg)
           else
             message.tags['message-type'] = 'chat'
             self:_log('[%s] <%s>: %s', channel, message.tags.username, msg)
-            self:emit('chat', channel, message.tags, msg, false)
-            self:emit('message', channel, message.tags, msg, false)
+            self:emit('chat', channel, message.tags.username, msg, message.tags)
+            self:emit('message', channel, message.tags.username, msg, message.tags)
           end
         end
       end
