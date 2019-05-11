@@ -36,6 +36,7 @@ function Client:__init(options)
   self.reconnections = 0
   self.reconnectionTask = nil
 
+  self.checkEmitter = Emitter() -- A way to check if the command was successful or not
   self.sendQueue = Queue(self)
   self.floodProtection = self.options.options.floodProtection or true
 
@@ -45,6 +46,7 @@ function Client:__init(options)
 
   self.channels = {}
   self.currentLatency = 0
+  self.checkDelay = 2000
   self.globaluserstate = {}
   self.lastJoined = ''
   self.moderators = {}
@@ -239,27 +241,34 @@ function Client:_handleMessage(message)
       self.username = message.params[0]
     elseif message.command == '372' then -- Connected to Server
       self.userstate['#tmilua'] = {}
+      self.checkEmitter:emit('connected', true)
       return self:_connected()
     elseif message.command == 'NOTICE' then -- https://dev.twitch.tv/docs/irc/chat-rooms/#notice-twitch-chat-rooms
       if messageId == 'subs_on' then
         self:_log('[$s] This room is now in subscribers-only mode', channel)
+        self.checkEmitter:emit('subs', channel)
         self:emit('subscribers', channel, true)
       elseif messageId == 'subs_off' then
         self:_log('[$s] This room is no longer in subscribers-only mode', channel)
+        self.checkEmitter:emit('subsOff', channel)
         self:emit('subscribers', channel, false)
 
       elseif messageId == 'emote_only_on' then
         self:_log('[$s] This room is now in emote-only mode', channel)
+        self.checkEmitter:emit('emoteOnly', channel)
         self:emit('emoteonly', channel, true)
       elseif messageId == 'emote_only_off' then
         self:_log('[$s] This room is no longer in emote-only mode', channel)
+        self.checkEmitter:emit('emoteOnlyOff', channel)
         self:emit('emoteonly', channel, false)
 
       elseif messageId == 'r9k_on' then
         self:_log('[$s] This room is now in r9k mode', channel)
+        self.checkEmitter:emit('r9kOn', channel)
         self:emit('r9kmode', channel, true)
       elseif messageId == 'r9k_off' then
         self:_log('[$s] This room is no longer in r9k mode', channel)
+        self.checkEmitter:emit('r9kOff', channel)
         self:emit('r9kmode', channel, false)
 
       elseif messageId == 'room_mods' then
@@ -268,9 +277,11 @@ function Client:_handleMessage(message)
           self.moderators[channel][mod] = true
         end
         self:emit('mods', channel, mods)
+        self.checkEmitter:emit('mods', channel, mods)
       elseif messageId == 'no_mods' then
         self.moderators[channel] = {}
         self:emit('mods', channel, {})
+        self.checkEmitter:emit('mods', channel, {})
 
       -- TODO: Complete
       end
@@ -287,6 +298,7 @@ function Client:_handleMessage(message)
 
       if messageSplit[1] == '-' then
         self:_log('[%s] Exited host mode', channel)
+        self.checkEmitter:emit('unhost', channel)
         self:emit('unhost', channel, viewers)
       else
         self:_log('[%s] Now hosting %s for %s viewer(s)', channel, messageSplit[1], viewers)
@@ -305,6 +317,7 @@ function Client:_handleMessage(message)
         end
       else
         self:_log('[%s] Chat was cleared by moderator', channel)
+        self.checkEmitter:emit('clearchat', channel)
         self:emit('clearchat', channel)
       end
     elseif message.command == 'CLEARMSG' then
@@ -347,7 +360,7 @@ function Client:_handleMessage(message)
         self:_updateEmoteSet(message.tags['emote-sets'])
       end
     elseif message.command == 'ROOMSTATE' then
-      if parser.channel(self.lastJoined) == parser.channel(message.params[1]) then end -- Successfully joined
+      if parser.channel(self.lastJoined) == parser.channel(message.params[1]) then self.checkEmitter:emit('joined', self.lastJoined) end -- Successfully joined
       message.tags.channel = parser.channel(message.params[1])
       self:emit('roomstate', parser.channel(message.params[1]), message.tags)
 
@@ -355,10 +368,12 @@ function Client:_handleMessage(message)
         if message.tags['slow'] ~= nil then
           if type(message.tags.slow) == 'boolean' and not message.tags.slow then
             self:_log('[%s] This room is no longer in slow mode', channel)
+            self.checkEmitter:emit('slowmodeOff', channel)
             self:emit('slowmode', channel, false)
           else
             local minutes = tonumber(message.tags.slow)
             self:_log('[%s] This room is now in slow mode', channel)
+            self.checkEmitter:emit('slowmodeOn', channel)
             self:emit('slowmode', channel, true, minutes)
           end
         end
@@ -367,11 +382,13 @@ function Client:_handleMessage(message)
       if message.tags['followers-only'] then
         if message.tags['followers-only'] == '-1' then
           self:_log('[%s] This room is no longer in followers-only mode', channel)
+          self.checkEmitter:emit('followersOff', channel)
           self:emit('followersonly', channel, false, 0)
           self:emit('followersmode', channel, false, 0)
         else
           local minutes = tonumber(message.tags['followers-only'])
           self:_log('[%s] This room is now in follower-only mode', channel)
+          self.checkEmitter:emit('followersOn', channel)
           self:emit('followersonly', channel, true, minutes)
           self:emit('followersmode', channel, true, minutes)
         end
@@ -415,6 +432,7 @@ function Client:_handleMessage(message)
         self.userstate[channel] = nil
         self.channels[channel] = nil
         self:_log('Left #%s', channel)
+        self.checkEmitter:emit('part', channel)
       end
 
       self:_log('User <%s> left %s', nick, channel)
@@ -509,7 +527,9 @@ end
 function Client:joinChannel(channel) -- Join a Channel
   if self.connected then
     channel = parser.channel(channel)
-    return self:_send('JOIN ' .. channel)
+    self:_send(f('JOIN %s', channel))
+
+    return self.checkEmitter:waitFor('joined', self.checkDelay, function(c) return c == channel end)
   else
     return false, 'Not connected'
   end
@@ -518,7 +538,9 @@ end
 function Client:leaveChannel(channel) -- Part a Channel
   if self.connected then
     channel = parser.channel(channel)
-    return self:_send('PART ' .. channel)
+    self:_send(f('PART %s', channel))
+
+    return self.checkEmitter:waitFor('part', self.checkDelay, function(c) return c == channel end)
   else
     return false, 'Not connected'
   end
@@ -529,10 +551,12 @@ function Client:followersOnly(channel, minutes) -- Toggle followers only mode
   channel = parser.channel(channel)
   if type(minutes) == 'boolean' and not minutes then
     -- Off
-    return self:sendCommand(channel, '/followersoff')
+    self:sendCommand(channel, '/followersoff')
+    return self.checkEmitter:waitFor('followersOn', self.checkDelay, function(c) return c == channel end)
   else
     minutes = minutes or 30
-    return self:sendCommand(channel, f('/followers %s', minutes))
+    self:sendCommand(channel, f('/followers %s', minutes))
+    return self.checkEmitter:waitFor('followersOff', self.checkDelay, function(c) return c == channel end)
   end
 end
 
@@ -541,9 +565,11 @@ function Client:r9kmode(channel, on) -- Toggle r9k mode
 
   channel = parser.channel(channel)
   if on then
-    return self:sendCommand(channel, '/r9kbeta')
+    self:sendCommand(channel, '/r9kbeta')
+    return self.checkEmitter:waitFor('r9kOn', self.checkDelay, function(c) return c == channel end)
   else
-    return self:sendCommand(channel, '/r9kbetaoff')
+    self:sendCommand(channel, '/r9kbetaoff')
+    return self.checkEmitter:waitFor('r9kOff', self.checkDelay, function(c) return c == channel end)
   end
 end
 function Client:r9kbeta(...) return self:r9kmode(...) end -- Alias for r9kmode
@@ -551,10 +577,12 @@ function Client:r9kbeta(...) return self:r9kmode(...) end -- Alias for r9kmode
 function Client:slowMode(channel, seconds) -- Toggle slow mode
   channel = parser.channel(channel)
   if type(seconds) == 'boolean' and not seconds then
-    return self:sendCommand(channel, '/slowoff')
+    self:sendCommand(channel, '/slowoff')
+    return self.checkEmitter:waitFor('slowmodeOff', self.checkDelay, function(c) return c == channel end)
   else
     seconds = seconds or 300
-    return self:sendCommand(channel, f('/slow %s', seconds))
+    self:sendCommand(channel, f('/slow %s', seconds))
+    return self.checkEmitter:waitFor('slowmodeOn', self.checkDelay, function(c) return c == channel end)
   end
 end
 
@@ -567,7 +595,8 @@ end
 
 function Client:clear(channel) -- Clear messages in a channel
   channel = parser.channel(channel)
-  return self:sendCommand(channel, '/clear')
+  self:sendCommand(channel, '/clear')
+  return self.checkEmitter:waitFor('chatclear', self.checkDelay, function(c) return c == channel end)
 end
 
 function Client:changeColor(channel, newColor) -- Change name color in a channel
